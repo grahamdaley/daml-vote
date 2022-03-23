@@ -1,0 +1,64 @@
+module Poll where
+
+template Poll
+  with
+    owner : Party
+    publicParty : Party
+    name : Text
+    question : Text
+    validAnswers : [Text]
+  where
+    signatory owner
+    observer publicParty
+
+    nonconsuming choice IssueVoteRequestProposal : ContractId VoteRequestProposal
+      with
+        voter : Party
+      controller owner
+      do
+        create VoteRequestProposal with
+          voteRequest = VoteRequest with
+            owner = voter
+            pollName = name
+            pollOwner = owner
+
+template Vote
+  with
+    owner: Party
+    pollName : Text
+    pollOwner : Party
+    response : Int
+  where
+    signatory owner
+    observer pollOwner
+
+template VoteRequest
+  with
+    owner : Party
+    pollName : Text
+    pollOwner : Party
+  where
+    signatory owner
+
+    key (owner, pollName) : (Party, Text)
+    maintainer key._1
+  
+    choice PlaceVote  : ContractId Vote
+      with
+        response : Int
+      controller owner
+      do
+        create Vote with ..
+
+template VoteRequestProposal
+  with
+    voteRequest : VoteRequest
+  where
+    signatory voteRequest.pollOwner
+    observer voteRequest.owner
+
+    choice VoteRequestProposal_Accept : ContractId VoteRequest
+      controller voteRequest.owner
+      do
+        create voteRequest
+    

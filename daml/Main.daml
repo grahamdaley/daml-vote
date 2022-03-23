@@ -1,0 +1,59 @@
+module Main where
+
+import Daml.Script
+import DA.Foldable
+import DA.Map qualified as M
+import DA.Optional
+import Poll
+
+setup : Script ()
+setup = script do
+  -- special observer user for polls, which will need to be readable by anyone
+  publicParty <- allocatePartyWithHint "Public" (PartyIdHint "Public")
+
+  -- normal users can create or vote in polls
+  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
+  jane <- allocatePartyWithHint "Jane" (PartyIdHint "Jane")
+  fred <- allocatePartyWithHint "Fred" (PartyIdHint "Fred")
+  mary <- allocatePartyWithHint "Mary" (PartyIdHint "Mary")
+
+  -- each polled user will respond with the index of one of the 
+  -- validAnswers (see below)
+  let votes = M.fromList [(bob, 0), (jane, 3), (fred, 0), (mary, 2)]
+  
+  -- Alice creates a new poll
+  alicePoll <- submit alice do
+    createCmd Poll.Poll with
+      owner = alice
+      publicParty = publicParty
+      name = "Test Poll"
+      question = "What is your favourite colour?"
+      validAnswers = ["Red", "Green", "Blue", "Orange", "Pink", "Yellow"]
+
+  forA_ (M.keys votes) (\voter ->
+    do
+      -- Alice sends a vote request to the voter
+      aliceRequestProposal <- submit alice do
+        exerciseCmd alicePoll IssueVoteRequestProposal with
+          voter = voter
+
+      -- Voter accepts Alice's vote request
+      voteRequest <- submit voter do
+        exerciseCmd aliceRequestProposal VoteRequestProposal_Accept
+      
+      -- Another party cannot vote using this vote request
+      submitMustFail publicParty do
+        exerciseCmd voteRequest PlaceVote with
+          response = fromSome (M.lookup voter votes)
+
+      -- The intended voter places their vote
+      submit voter do
+        exerciseCmd voteRequest PlaceVote with
+          response = fromSome (M.lookup voter votes)
+      
+      -- The same voter can't place a vote more than once
+      submitMustFail voter do
+        exerciseCmd voteRequest PlaceVote with
+          response = fromSome (M.lookup voter votes)
+    )
